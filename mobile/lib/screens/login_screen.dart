@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../services/finance_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -55,15 +56,26 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: authService.isLoading
                     ? null
                     : () async {
-                        final success = await authService.loginWithMicrosoftOrGoogle();
-                        if (success && mounted) {
-                          Navigator.of(context).pushReplacementNamed(
-                            '/dashboard',
-                          );
-                        } else if (!success && mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                        final navigator = Navigator.of(context);
+                        final messenger = ScaffoldMessenger.of(context);
+                        final financeService = context.read<FinanceService>();
+                        final success =
+                            await authService.loginWithMicrosoftOrGoogle();
+                        if (!context.mounted) {
+                          return;
+                        }
+                        if (success) {
+                          await financeService.fetchFinancialData();
+                          if (!context.mounted) {
+                            return;
+                          }
+                          navigator.pushReplacementNamed('/dashboard');
+                        } else {
+                          messenger.showSnackBar(
                             const SnackBar(
-                              content: Text('Authentication route was cancelled or failed.'),
+                              content: Text(
+                                'Authentication route was cancelled or failed.',
+                              ),
                               backgroundColor: Colors.redAccent,
                             ),
                           );

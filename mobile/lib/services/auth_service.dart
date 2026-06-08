@@ -38,7 +38,7 @@ class AuthService extends ChangeNotifier {
         ),
       );
 
-      if (result != null && result.accessToken != null) {
+      if (result.accessToken != null) {
         // Cache session tokens in secure local device hardware storage layers
         await _secureStorage.write(key: 'access_token', value: result.accessToken);
         await _secureStorage.write(key: 'id_token', value: result.idToken);

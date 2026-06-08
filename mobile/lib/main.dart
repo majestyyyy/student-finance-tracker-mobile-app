@@ -1,36 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'models/ledger_entry.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/finance_service.dart';
 import 'services/theme_service.dart';
+import 'widgets/add_transaction_sheet.dart';
+import 'widgets/add_wallet_sheet.dart';
+import 'widgets/wallet_carousel.dart';
 
 // ---------------------------------------------------------------------------
 // Semantic design tokens
 // ---------------------------------------------------------------------------
 
 abstract final class AppColors {
-  // Dark mode
   static const Color darkCanvas = Color(0xFF0F1115);
   static const Color darkSurface = Color(0xFF181A20);
   static const Color darkBorder = Color(0xFF22252D);
 
-  // Light mode
   static const Color lightCanvas = Color(0xFFF5F7FA);
   static const Color lightSurface = Colors.white;
   static const Color lightBorder = Color(0xFFE2E8F0);
 
-  // Shared semantic accents
   static const Color incomeEmerald = Color(0xFF10B981);
   static const Color expenseCrimson = Color(0xFFEF4444);
   static const Color primaryBlue = Color(0xFF3B82F6);
   static const Color primaryBlueDeep = Color(0xFF1D4ED8);
 
-  // Light text
   static const Color lightTextPrimary = Color(0xFF1E293B);
   static const Color lightTextSecondary = Color(0xFF64748B);
 
-  // Dark text
   static const Color darkTextPrimary = Colors.white;
   static const Color darkTextSecondary = Color(0xFF94A3B8);
 }
@@ -45,96 +45,6 @@ abstract final class AppSpacing {
 }
 
 // ---------------------------------------------------------------------------
-// Mock structural models — Phase 2 local wallet engine placeholders
-// ---------------------------------------------------------------------------
-
-class WalletPool {
-  const WalletPool({
-    required this.name,
-    required this.balance,
-    required this.typeLabel,
-    required this.accentColor,
-  });
-
-  final String name;
-  final double balance;
-  final String typeLabel;
-  final Color accentColor;
-}
-
-class LedgerEntry {
-  const LedgerEntry({
-    required this.title,
-    required this.walletSource,
-    required this.amount,
-    required this.isExpense,
-    required this.timestampLabel,
-  });
-
-  final String title;
-  final String walletSource;
-  final double amount;
-  final bool isExpense;
-  final String timestampLabel;
-}
-
-const List<WalletPool> _mockWalletPools = [
-  WalletPool(
-    name: 'Daily Allowance',
-    balance: 250.00,
-    typeLabel: 'Cash',
-    accentColor: AppColors.primaryBlue,
-  ),
-  WalletPool(
-    name: 'Savings Vault',
-    balance: 4500.00,
-    typeLabel: 'Bank',
-    accentColor: AppColors.incomeEmerald,
-  ),
-  WalletPool(
-    name: 'Digital Maya',
-    balance: 1280.50,
-    typeLabel: 'E-Wallet',
-    accentColor: Color(0xFF8B5CF6),
-  ),
-];
-
-const List<LedgerEntry> _mockLedgerEntries = [
-  LedgerEntry(
-    title: 'Books & Photocopy',
-    walletSource: 'Allowance',
-    amount: 180.00,
-    isExpense: true,
-    timestampLabel: 'Today',
-  ),
-  LedgerEntry(
-    title: 'Part-time Freelance Stipend',
-    walletSource: 'Savings',
-    amount: 2500.00,
-    isExpense: false,
-    timestampLabel: 'Yesterday',
-  ),
-  LedgerEntry(
-    title: 'Fastfood Lunch Combo',
-    walletSource: 'Allowance',
-    amount: 125.00,
-    isExpense: true,
-    timestampLabel: '07 June',
-  ),
-  LedgerEntry(
-    title: 'Sent from Mom',
-    walletSource: 'Digital Maya',
-    amount: 1000.00,
-    isExpense: false,
-    timestampLabel: '05 June',
-  ),
-];
-
-const double _mockTotalBalance = 6030.50;
-const double _mockPeriodIncome = 3500.00;
-const double _mockPeriodExpenses = 305.00;
-
-// ---------------------------------------------------------------------------
 // Application entry
 // ---------------------------------------------------------------------------
 
@@ -143,13 +53,17 @@ void main() async {
 
   final authService = AuthService();
   final themeService = ThemeService();
+  final financeService = FinanceService();
+
   final bool isLoggedIn = await authService.checkAutoLoginState();
+  await financeService.fetchFinancialData();
 
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider<AuthService>.value(value: authService),
         ChangeNotifierProvider<ThemeService>.value(value: themeService),
+        ChangeNotifierProvider<FinanceService>.value(value: financeService),
       ],
       child: MyApp(isLoggedIn: isLoggedIn),
     ),
@@ -310,14 +224,28 @@ TextTheme _buildTextTheme({
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 — Dashboard core
+// Phase 2 — Dashboard core (SQLite-backed)
 // ---------------------------------------------------------------------------
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
   @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<FinanceService>().fetchFinancialData();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final financeService = context.watch<FinanceService>();
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -331,46 +259,77 @@ class DashboardScreen extends StatelessWidget {
         surfaceColor: surfaceColor,
         borderColor: borderColor,
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => AddTransactionSheet.show(context),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Log'),
+      ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _AggregateBalanceBanner(textTheme: textTheme),
-              const SizedBox(height: AppSpacing.xxl),
-              _SectionHeader(
-                title: 'My Accounts & Wallets',
-                trailing: IconButton(
-                  onPressed: () {},
-                  icon: Icon(
-                    Icons.add_circle_outline_rounded,
-                    color: colorScheme.primary,
+        child: financeService.isLoading && financeService.wallets.isEmpty
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: financeService.fetchFinancialData,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics(),
                   ),
-                  tooltip: 'Add wallet',
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (financeService.errorMessage != null) ...[
+                        _ErrorBanner(message: financeService.errorMessage!),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
+                      _AggregateBalanceBanner(
+                        textTheme: textTheme,
+                        totalBalance: financeService.totalBalance,
+                        periodIncome: financeService.periodIncome,
+                        periodExpenses: financeService.periodExpenses,
+                      ),
+                      const SizedBox(height: AppSpacing.xxl),
+                      _SectionHeader(
+                        title: 'My Accounts & Wallets',
+                        trailing: IconButton(
+                          onPressed: () => AddWalletSheet.show(context),
+                          icon: Icon(
+                            Icons.add_circle_outline_rounded,
+                            color: colorScheme.primary,
+                          ),
+                          tooltip: 'Add wallet',
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      financeService.wallets.isEmpty
+                          ? _EmptyWalletsCard(
+                              onAddWallet: () => AddWalletSheet.show(context),
+                            )
+                          : WalletCarousel(wallets: financeService.wallets),
+                      const SizedBox(height: AppSpacing.xxl),
+                      _SectionHeader(
+                        title: 'Recent Ledger Stream',
+                        trailing: TextButton(
+                          onPressed: () => AddTransactionSheet.show(context),
+                          child: const Text('Log entry'),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      financeService.transactions.isEmpty
+                          ? _EmptyTransactionsCard(
+                              onLogTransaction: () =>
+                                  AddTransactionSheet.show(context),
+                            )
+                          : _TransactionFeed(
+                              entries: financeService.transactions,
+                              surfaceColor: surfaceColor,
+                              borderColor: borderColor,
+                              textTheme: textTheme,
+                            ),
+                      const SizedBox(height: 80),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.md),
-              const _WalletCarousel(wallets: _mockWalletPools),
-              const SizedBox(height: AppSpacing.xxl),
-              _SectionHeader(
-                title: 'Recent Ledger Stream',
-                trailing: TextButton(
-                  onPressed: () {},
-                  child: const Text('See all'),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _TransactionFeed(
-                entries: _mockLedgerEntries,
-                surfaceColor: surfaceColor,
-                borderColor: borderColor,
-                textTheme: textTheme,
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -379,6 +338,104 @@ class DashboardScreen extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // Dashboard sub-components
 // ---------------------------------------------------------------------------
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.expenseCrimson.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppSpacing.md),
+        border: Border.all(
+          color: AppColors.expenseCrimson.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Text(
+          message,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.expenseCrimson,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyWalletsCard extends StatelessWidget {
+  const _EmptyWalletsCard({required this.onAddWallet});
+
+  final VoidCallback onAddWallet;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          children: [
+            Text(
+              'No wallets yet',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Add your first wallet to start tracking balances.',
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            FilledButton.icon(
+              onPressed: onAddWallet,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Wallet'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyTransactionsCard extends StatelessWidget {
+  const _EmptyTransactionsCard({required this.onLogTransaction});
+
+  final VoidCallback onLogTransaction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          children: [
+            Text(
+              'No transactions logged',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Record an expense or income to populate your ledger.',
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            OutlinedButton.icon(
+              onPressed: onLogTransaction,
+              icon: const Icon(Icons.receipt_long_outlined),
+              label: const Text('Log Transaction'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _DashboardAppBar extends StatelessWidget implements PreferredSizeWidget {
   const _DashboardAppBar({
@@ -404,14 +461,8 @@ class _DashboardAppBar extends StatelessWidget implements PreferredSizeWidget {
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Welcome back,',
-            style: textTheme.bodySmall,
-          ),
-          Text(
-            displayName,
-            style: textTheme.titleLarge,
-          ),
+          Text('Great to see you,', style: textTheme.bodySmall),
+          Text(displayName, style: textTheme.titleLarge),
         ],
       ),
       actions: [
@@ -481,9 +532,17 @@ class _AppBarIconButton extends StatelessWidget {
 }
 
 class _AggregateBalanceBanner extends StatelessWidget {
-  const _AggregateBalanceBanner({required this.textTheme});
+  const _AggregateBalanceBanner({
+    required this.textTheme,
+    required this.totalBalance,
+    required this.periodIncome,
+    required this.periodExpenses,
+  });
 
   final TextTheme textTheme;
+  final double totalBalance;
+  final double periodIncome;
+  final double periodExpenses;
 
   @override
   Widget build(BuildContext context) {
@@ -492,10 +551,7 @@ class _AggregateBalanceBanner extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColors.primaryBlue,
-            AppColors.primaryBlueDeep,
-          ],
+          colors: [AppColors.primaryBlue, AppColors.primaryBlueDeep],
         ),
         borderRadius: BorderRadius.circular(AppSpacing.xl),
         boxShadow: [
@@ -519,7 +575,7 @@ class _AggregateBalanceBanner extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              _formatPeso(_mockTotalBalance),
+              _formatPeso(totalBalance),
               style: textTheme.headlineLarge?.copyWith(
                 color: Colors.white,
                 fontSize: 36,
@@ -533,7 +589,7 @@ class _AggregateBalanceBanner extends StatelessWidget {
                 Expanded(
                   child: _MicroSummaryChip(
                     label: 'Income',
-                    amount: _mockPeriodIncome,
+                    amount: periodIncome,
                     icon: Icons.south_west_rounded,
                     color: AppColors.incomeEmerald,
                   ),
@@ -542,7 +598,7 @@ class _AggregateBalanceBanner extends StatelessWidget {
                 Expanded(
                   child: _MicroSummaryChip(
                     label: 'Spent',
-                    amount: _mockPeriodExpenses,
+                    amount: periodExpenses,
                     icon: Icons.north_east_rounded,
                     color: AppColors.expenseCrimson,
                   ),
@@ -601,10 +657,7 @@ class _MicroSummaryChip extends StatelessWidget {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    this.trailing,
-  });
+  const _SectionHeader({required this.title, this.trailing});
 
   final String title;
   final Widget? trailing;
@@ -614,118 +667,10 @@ class _SectionHeader extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
+          child: Text(title, style: Theme.of(context).textTheme.titleLarge),
         ),
         if (trailing != null) trailing!,
       ],
-    );
-  }
-}
-
-class _WalletCarousel extends StatelessWidget {
-  const _WalletCarousel({required this.wallets});
-
-  final List<WalletPool> wallets;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 140,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        itemCount: wallets.length,
-        separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.md),
-        itemBuilder: (context, index) {
-          return _WalletPoolCard(wallet: wallets[index]);
-        },
-      ),
-    );
-  }
-}
-
-class _WalletPoolCard extends StatelessWidget {
-  const _WalletPoolCard({required this.wallet});
-
-  final WalletPool wallet;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surfaceColor =
-        isDark ? AppColors.darkSurface : AppColors.lightSurface;
-    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
-    final textTheme = Theme.of(context).textTheme;
-
-    return SizedBox(
-      width: 176,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: surfaceColor,
-          borderRadius: BorderRadius.circular(AppSpacing.lg),
-          border: Border.all(color: borderColor, width: 1.5),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _TypeBadge(
-                label: wallet.typeLabel,
-                accentColor: wallet.accentColor,
-              ),
-              const Spacer(),
-              Text(
-                wallet.name,
-                style: textTheme.bodySmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                _formatPeso(wallet.balance),
-                style: textTheme.titleMedium,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TypeBadge extends StatelessWidget {
-  const _TypeBadge({
-    required this.label,
-    required this.accentColor,
-  });
-
-  final String label;
-  final Color accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: accentColor.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(AppSpacing.sm),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
-        ),
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: accentColor,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-      ),
     );
   }
 }
@@ -816,10 +761,7 @@ class _TransactionTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    entry.walletSource,
-                    style: textTheme.bodySmall,
-                  ),
+                  Text(entry.walletSource, style: textTheme.bodySmall),
                 ],
               ),
             ),
@@ -835,10 +777,7 @@ class _TransactionTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),
-                Text(
-                  entry.timestampLabel,
-                  style: textTheme.labelSmall,
-                ),
+                Text(entry.timestampLabel, style: textTheme.labelSmall),
               ],
             ),
           ],
