@@ -64,17 +64,19 @@ class _LoginScreenState extends State<LoginScreen> {
                         if (!context.mounted) {
                           return;
                         }
-                        if (success) {
+                        if (success && authService.isUserSynced) {
                           await financeService.fetchFinancialData();
                           if (!context.mounted) {
                             return;
                           }
                           navigator.pushReplacementNamed('/dashboard');
                         } else {
+                          final syncError = authService.lastSyncError;
                           messenger.showSnackBar(
-                            const SnackBar(
+                            SnackBar(
                               content: Text(
-                                'Authentication route was cancelled or failed.',
+                                syncError ??
+                                    'Authentication route was cancelled or failed.',
                               ),
                               backgroundColor: Colors.redAccent,
                             ),

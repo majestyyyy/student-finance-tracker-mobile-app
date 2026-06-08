@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
+
+import '../models/wallet_carousel_item.dart';
 import 'wallet_card.dart';
 
+/// Horizontal PageView carousel with peeking credit-card wallet tiles.
 class WalletCarousel extends StatefulWidget {
-  final List<WalletCarouselItem> wallets;
+  const WalletCarousel({
+    super.key,
+    required this.wallets,
+  });
 
-  const WalletCarousel({super.key, required this.wallets});
+  final List<WalletCarouselItem> wallets;
 
   @override
   State<WalletCarousel> createState() => _WalletCarouselState();
@@ -34,19 +40,15 @@ class _WalletCarouselState extends State<WalletCarousel> {
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
-          height: 175, 
+          height: 190,
           child: PageView.builder(
             controller: _pageController,
             physics: const BouncingScrollPhysics(),
             itemCount: widget.wallets.length,
-            onPageChanged: (int page) {
-              setState(() {
-                _currentPage = page;
-              });
-            },
+            onPageChanged: (page) => setState(() => _currentPage = page),
             itemBuilder: (context, index) {
               return WalletCard(
-                item: widget.wallets[index], // Fixed mapping setup
+                item: widget.wallets[index],
                 isDark: isDark,
               );
             },

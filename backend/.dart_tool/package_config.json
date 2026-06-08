@@ -50,6 +50,12 @@
       "languageVersion": "3.0"
     },
     {
+      "name": "clock",
+      "rootUri": "file:///Users/majesty/.pub-cache/hosted/pub.dev/clock-1.1.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
       "name": "collection",
       "rootUri": "file:///Users/majesty/.pub-cache/hosted/pub.dev/collection-1.19.1",
       "packageUri": "lib/",
@@ -132,6 +138,12 @@
       "rootUri": "file:///Users/majesty/.pub-cache/hosted/pub.dev/http_parser-4.1.2",
       "packageUri": "lib/",
       "languageVersion": "3.4"
+    },
+    {
+      "name": "intl",
+      "rootUri": "file:///Users/majesty/.pub-cache/hosted/pub.dev/intl-0.20.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.3"
     },
     {
       "name": "io",

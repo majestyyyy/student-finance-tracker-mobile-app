@@ -9,6 +9,7 @@ class DatabaseConfig {
     required this.username,
     required this.password,
     required this.sslMode,
+    required this.maxPoolSize,
   });
 
   factory DatabaseConfig.fromEnvironment() {
@@ -19,6 +20,7 @@ class DatabaseConfig {
       username: _env('DB_USER', 'tracker'),
       password: _env('DB_PASSWORD', 'tracker_dev_password'),
       sslMode: _env('DB_SSL_MODE', 'disable'),
+      maxPoolSize: int.parse(_env('DB_POOL_SIZE', '10')),
     );
   }
 
@@ -28,6 +30,7 @@ class DatabaseConfig {
   final String username;
   final String password;
   final String sslMode;
+  final int maxPoolSize;
 
   static String _env(String key, String fallback) {
     final compileTime = String.fromEnvironment(key);

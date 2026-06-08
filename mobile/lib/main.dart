@@ -53,10 +53,13 @@ void main() async {
 
   final authService = AuthService();
   final themeService = ThemeService();
-  final financeService = FinanceService();
+  final financeService = FinanceService(authService: authService);
 
+  // Session restore includes mandatory POST /v1/users/sync before finance loads.
   final bool isLoggedIn = await authService.checkAutoLoginState();
-  await financeService.fetchFinancialData();
+  if (isLoggedIn && authService.isUserSynced) {
+    await financeService.fetchFinancialData();
+  }
 
   runApp(
     MultiProvider(
@@ -238,8 +241,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<FinanceService>().fetchFinancialData();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final authService = context.read<AuthService>();
+      if (!authService.isUserSynced) {
+        final synced = await authService.ensureUserSynced();
+        if (!synced || !mounted) {
+          return;
+        }
+      }
+      if (mounted) {
+        await context.read<FinanceService>().fetchFinancialData();
+      }
     });
   }
 

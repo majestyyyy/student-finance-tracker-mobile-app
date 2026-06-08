@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../models/wallet_carousel_item.dart';
 import '../services/finance_service.dart';
-import 'wallet_card.dart'; // Handles WalletCarouselItem
 
 class AddTransactionSheet extends StatefulWidget {
   const AddTransactionSheet({super.key});

@@ -88,113 +88,94 @@ Future<Response> onRequest(RequestContext context) async {
 
     final parsedBalance = _parseBalance(balance);
 
-    final connection = await context.read<Future<Connection>>();
+    final pool = context.read<Pool<void>>();
 
-    final userLookup = await connection.execute(
-      Sql.named(
-        '''
-        SELECT id
-        FROM users
-        WHERE azure_user_id = @azure_user_id
-        LIMIT 1
-        ''',
-      ),
-      parameters: {'azure_user_id': normalizedAzureUserId},
-    );
-
-    if (userLookup.isEmpty) {
-      return Response(
-        statusCode: 404,
-        body: const ApiError(
-          code: 'user_not_found',
-          message:
-              'No local user record exists for the provided azure_user_id. '
-              'Call /v1/users/sync first.',
-        ).toJsonString(),
-        headers: {'Content-Type': 'application/json'},
+    return await pool.withConnection((connection) async {
+      final userLookup = await connection.execute(
+        Sql.named(
+          '''
+          SELECT id
+          FROM users
+          WHERE id = @id
+          LIMIT 1
+          ''',
+        ),
+        parameters: {'id': normalizedAzureUserId},
       );
-    }
 
-    final userId = userLookup.first[0]! as int;
+      if (userLookup.isEmpty) {
+        return Response(
+          statusCode: 404,
+          body: const ApiError(
+            code: 'user_not_found',
+            message:
+                'No user record exists for the provided azure_user_id. '
+                'Call /v1/users/sync first.',
+          ).toJsonString(),
+          headers: {'Content-Type': 'application/json'},
+        );
+      }
 
-    final accountTypeLookup = await connection.execute(
-      Sql.named(
-        '''
-        SELECT id, code, display_name
-        FROM account_types
-        WHERE code = @code AND is_active = TRUE
-        LIMIT 1
-        ''',
-      ),
-      parameters: {'code': normalizedAccountType},
-    );
+      final userId = userLookup.first[0]! as String;
+      final typeLabel = _defaultTypeLabel(normalizedAccountType);
 
-    if (accountTypeLookup.isEmpty) {
-      return Response(
-        statusCode: 422,
-        body: ApiError(
-          code: 'invalid_account_type',
-          message: 'The requested account_type is not available',
-          details: {'account_type': normalizedAccountType},
-        ).toJsonString(),
-        headers: {'Content-Type': 'application/json'},
-      );
-    }
-
-    final accountTypeId = accountTypeLookup.first[0]! as int;
-    final accountTypeCode = accountTypeLookup.first[1]! as String;
-    final accountTypeDisplayName = accountTypeLookup.first[2]! as String;
-
-    final insertResult = await connection.execute(
-      Sql.named(
-        '''
-        INSERT INTO accounts (
-          user_id,
-          account_type_id,
-          name,
-          balance,
-          currency_code
-        )
-        VALUES (
-          @user_id,
-          @account_type_id,
-          @name,
-          @balance::DECIMAL(15, 2),
-          @currency_code
-        )
-        RETURNING id, balance, currency_code, created_at
-        ''',
-      ),
-      parameters: {
-        'user_id': userId,
-        'account_type_id': accountTypeId,
-        'name': normalizedName,
-        'balance': parsedBalance.toStringAsFixed(2),
-        'currency_code': normalizedCurrency,
-      },
-    );
-
-    final insertedRow = insertResult.first;
-    final accountId = insertedRow[0]! as int;
-    final insertedBalance = _decimalFromRow(insertedRow[1]);
-    final insertedCurrency = insertedRow[2]! as String;
-    final createdAt = insertedRow[3]!.toString();
-
-    return Response.json(
-      statusCode: 201,
-      body: {
-        'account': {
-          'id': accountId,
+      final insertResult = await connection.execute(
+        Sql.named(
+          '''
+          INSERT INTO accounts (
+            user_id,
+            account_type,
+            type_label,
+            name,
+            type_group,
+            balance,
+            currency_code
+          )
+          VALUES (
+            @user_id,
+            @account_type,
+            @type_label,
+            @name,
+            @type_group,
+            @balance::DECIMAL(15, 2),
+            @currency_code
+          )
+          RETURNING id, balance, currency_code, created_at
+          ''',
+        ),
+        parameters: {
           'user_id': userId,
+          'account_type': normalizedAccountType,
+          'type_label': typeLabel,
           'name': normalizedName,
-          'account_type': accountTypeCode,
-          'account_type_display_name': accountTypeDisplayName,
-          'balance': insertedBalance,
-          'currency_code': insertedCurrency,
-          'created_at': createdAt,
+          'type_group': _defaultTypeGroup(normalizedAccountType),
+          'balance': parsedBalance.toStringAsFixed(2),
+          'currency_code': normalizedCurrency,
         },
-      },
-    );
+      );
+
+      final insertedRow = insertResult.first;
+      final accountId = insertedRow[0]! as int;
+      final insertedBalance = _decimalFromRow(insertedRow[1]);
+      final insertedCurrency = insertedRow[2]! as String;
+      final createdAt = insertedRow[3]!.toString();
+
+      return Response.json(
+        statusCode: 201,
+        body: {
+          'account': {
+            'id': accountId,
+            'user_id': userId,
+            'name': normalizedName,
+            'account_type': normalizedAccountType,
+            'account_type_display_name': typeLabel,
+            'balance': insertedBalance,
+            'currency_code': insertedCurrency,
+            'created_at': createdAt,
+          },
+        },
+      );
+    });
   } on ServerException catch (error) {
     return Response(
       statusCode: 500,
@@ -247,6 +228,36 @@ double _parseBalance(dynamic balance) {
     return double.parse(parsed.toStringAsFixed(2));
   }
   throw const FormatException('balance must be a number');
+}
+
+String _defaultTypeGroup(String accountType) {
+  switch (accountType) {
+    case 'credit_card':
+      return 'credit';
+    case 'bnpl':
+      return 'debt';
+    default:
+      return 'asset';
+  }
+}
+
+String _defaultTypeLabel(String accountType) {
+  switch (accountType) {
+    case 'cash':
+      return 'Cash';
+    case 'traditional_bank':
+      return 'Bank';
+    case 'digital_bank':
+      return 'E-Wallet';
+    case 'credit_card':
+      return 'Credit Card';
+    case 'bnpl':
+      return 'BNPL';
+    case 'savings':
+      return 'Savings';
+    default:
+      return accountType;
+  }
 }
 
 String _decimalFromRow(dynamic value) {

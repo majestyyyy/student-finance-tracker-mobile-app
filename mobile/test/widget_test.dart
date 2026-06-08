@@ -10,7 +10,7 @@ void main() {
       (tester) async {
     final authService = AuthService();
     final themeService = ThemeService();
-    final financeService = FinanceService();
+    final financeService = FinanceService(authService: authService);
 
     await tester.pumpWidget(
       MultiProvider(

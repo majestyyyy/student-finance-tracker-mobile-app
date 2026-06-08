@@ -8,6 +8,7 @@ class LedgerEntry {
     required this.isExpense,
     required this.timestampLabel,
     required this.walletId,
+    this.walletTypeGroup = 'asset',
   });
 
   final int id;
@@ -17,4 +18,5 @@ class LedgerEntry {
   final bool isExpense;
   final String timestampLabel;
   final int walletId;
+  final String walletTypeGroup;
 }

@@ -34,15 +34,16 @@ Future<Response> onRequest(RequestContext context) async {
       return _badRequest('Request body must be a JSON object');
     }
 
-    final azureUserId = decoded['azure_user_id'];
+    // API contract: azure_user_id in JSON maps to users.id (Entra sub claim).
+    final entraUserId = decoded['azure_user_id'];
     final email = decoded['email'];
     final displayName = decoded['display_name'];
 
     final validationErrors = <String, String>{};
 
-    final azureUserIdError = RequestValidators.validateAzureUserId(azureUserId);
-    if (azureUserIdError != null) {
-      validationErrors['azure_user_id'] = azureUserIdError;
+    final userIdError = RequestValidators.validateAzureUserId(entraUserId);
+    if (userIdError != null) {
+      validationErrors['azure_user_id'] = userIdError;
     }
 
     final emailError = RequestValidators.validateEmail(email);
@@ -66,7 +67,7 @@ Future<Response> onRequest(RequestContext context) async {
       return Response.json(statusCode: 422, body: errorBody);
     }
 
-    final normalizedAzureUserId = (azureUserId as String).trim();
+    final normalizedUserId = (entraUserId as String).trim();
     final normalizedEmail = (email as String).trim().toLowerCase();
     final normalizedDisplayName = displayName is String
         ? displayName.trim().isEmpty
@@ -74,79 +75,86 @@ Future<Response> onRequest(RequestContext context) async {
             : displayName.trim()
         : null;
 
-    final connection = await context.read<Future<Connection>>();
+    final pool = context.read<Pool<void>>();
 
-    final existingUser = await connection.execute(
-      Sql.named(
-        '''
-        SELECT id, azure_user_id, email
-        FROM users
-        WHERE azure_user_id = @azure_user_id
-        LIMIT 1
-        ''',
-      ),
-      parameters: {'azure_user_id': normalizedAzureUserId},
-    );
+    return await pool.withConnection((connection) async {
+      final existingUser = await connection.execute(
+        Sql.named(
+          '''
+          SELECT id, email, display_name, created_at
+          FROM users
+          WHERE id = @id
+          LIMIT 1
+          ''',
+        ),
+        parameters: {'id': normalizedUserId},
+      );
 
-    if (existingUser.isNotEmpty) {
-      final row = existingUser.first;
-      final existingEmail = row[2]! as String;
+      if (existingUser.isNotEmpty) {
+        final row = existingUser.first;
+        final existingEmail = row[1]! as String;
+        final existingDisplayName = row[2] as String?;
 
-      if (existingEmail != normalizedEmail ||
-          (normalizedDisplayName != null)) {
-        await connection.execute(
-          Sql.named(
-            '''
-            UPDATE users
-            SET
-              email = @email,
-              display_name = COALESCE(@display_name, display_name),
-              updated_at = NOW()
-            WHERE azure_user_id = @azure_user_id
-            ''',
-          ),
-          parameters: {
-            'azure_user_id': normalizedAzureUserId,
-            'email': normalizedEmail,
-            'display_name': normalizedDisplayName,
+        final shouldUpdate = existingEmail != normalizedEmail ||
+            (normalizedDisplayName != null &&
+                normalizedDisplayName != existingDisplayName);
+
+        if (shouldUpdate) {
+          await connection.execute(
+            Sql.named(
+              '''
+              UPDATE users
+              SET
+                email = @email,
+                display_name = COALESCE(@display_name, display_name)
+              WHERE id = @id
+              ''',
+            ),
+            parameters: {
+              'id': normalizedUserId,
+              'email': normalizedEmail,
+              'display_name': normalizedDisplayName,
+            },
+          );
+        }
+
+        return Response.json(
+          body: {
+            'synced': true,
+            'created': false,
+            'user_id': row[0]! as String,
+            'created_at': row[3]?.toString(),
           },
         );
       }
 
-      return Response.json(
-        body: {
-          'synced': true,
-          'created': false,
-          'user_id': row[0]! as int,
+      final insertResult = await connection.execute(
+        Sql.named(
+          '''
+          INSERT INTO users (id, email, display_name)
+          VALUES (@id, @email, @display_name)
+          RETURNING id, created_at
+          ''',
+        ),
+        parameters: {
+          'id': normalizedUserId,
+          'email': normalizedEmail,
+          'display_name': normalizedDisplayName,
         },
       );
-    }
 
-    final insertResult = await connection.execute(
-      Sql.named(
-        '''
-        INSERT INTO users (azure_user_id, email, display_name)
-        VALUES (@azure_user_id, @email, @display_name)
-        RETURNING id
-        ''',
-      ),
-      parameters: {
-        'azure_user_id': normalizedAzureUserId,
-        'email': normalizedEmail,
-        'display_name': normalizedDisplayName,
-      },
-    );
+      final insertedRow = insertResult.first;
 
-    final newUserId = insertResult.first[0]! as int;
-
-    return Response.json(
-      statusCode: 201,
-      body: {
-        'synced': true,
-        'created': true,
-        'user_id': newUserId,
-      },
-    );
+      return Response.json(
+        statusCode: 201,
+        body: {
+          'synced': true,
+          'created': true,
+          'user_id': insertedRow[0]! as String,
+          'created_at': insertedRow[1]?.toString(),
+        },
+      );
+    });
   } on ServerException catch (error) {
     return Response(
       statusCode: 500,
