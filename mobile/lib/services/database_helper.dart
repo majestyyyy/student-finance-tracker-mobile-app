@@ -200,6 +200,58 @@ class DatabaseHelper {
     });
   }
 
+  Future<void> deleteTransaction({required int id}) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      final transactionRows = await txn.query(
+        'transactions',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+
+      if (transactionRows.isEmpty) {
+        throw StateError('Transaction $id not found');
+      }
+
+      final row = transactionRows.first;
+      final walletId = row['wallet_id'] as int;
+      final amount = _parseDouble(row['amount']);
+      final isExpense = (row['is_expense'] as int) == 1;
+
+      await txn.delete(
+        'transactions',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      final walletRows = await txn.query(
+        'wallets',
+        columns: ['balance'],
+        where: 'id = ?',
+        whereArgs: [walletId],
+        limit: 1,
+      );
+
+      if (walletRows.isEmpty) {
+        throw StateError('Wallet $walletId not found');
+      }
+
+      final currentBalance = _parseDouble(walletRows.first['balance']);
+      final updatedBalance = isExpense
+          ? currentBalance + amount
+          : currentBalance - amount;
+
+      await txn.update(
+        'wallets',
+        {'balance': double.parse(updatedBalance.toStringAsFixed(2))},
+        where: 'id = ?',
+        whereArgs: [walletId],
+      );
+    });
+  }
+
   static double _parseDouble(Object? value) {
     if (value == null) {
       return 0.0;

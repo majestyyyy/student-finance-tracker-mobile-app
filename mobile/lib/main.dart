@@ -268,7 +268,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: financeService.isLoading && financeService.wallets.isEmpty
             ? const Center(child: CircularProgressIndicator())
             : RefreshIndicator(
-                onRefresh: financeService.fetchFinancialData,
+                onRefresh: () =>
+                    context.read<FinanceService>().fetchFinancialData(),
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(
                     parent: BouncingScrollPhysics(),
@@ -696,11 +697,33 @@ class _TransactionFeed extends StatelessWidget {
       itemCount: entries.length,
       separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
       itemBuilder: (context, index) {
-        return _TransactionTile(
-          entry: entries[index],
-          surfaceColor: surfaceColor,
-          borderColor: borderColor,
-          textTheme: textTheme,
+        final entry = entries[index];
+
+        return Dismissible(
+          key: ValueKey<int>(entry.id),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: AppSpacing.lg),
+            decoration: BoxDecoration(
+              color: AppColors.expenseCrimson,
+              borderRadius: BorderRadius.circular(AppSpacing.md),
+            ),
+            child: const Icon(
+              Icons.delete_outline_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          onDismissed: (_) {
+            context.read<FinanceService>().deleteTransaction(id: entry.id);
+          },
+          child: _TransactionTile(
+            entry: entry,
+            surfaceColor: surfaceColor,
+            borderColor: borderColor,
+            textTheme: textTheme,
+          ),
         );
       },
     );

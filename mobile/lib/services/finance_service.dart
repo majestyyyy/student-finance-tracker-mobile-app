@@ -114,6 +114,11 @@ class FinanceService extends ChangeNotifier {
     await fetchFinancialData();
   }
 
+  Future<void> deleteTransaction({required int id}) async {
+    await _databaseHelper.deleteTransaction(id: id);
+    await fetchFinancialData();
+  }
+
   static String _buildTimestampLabel(DateTime dateTime) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);

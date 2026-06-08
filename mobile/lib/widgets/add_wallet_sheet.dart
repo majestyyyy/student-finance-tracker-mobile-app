@@ -165,21 +165,26 @@ class _AddWalletSheetState extends State<AddWalletSheet> {
       return;
     }
 
+    final walletName = _nameController.text.trim();
+    final accountType = _selectedAccountType;
+    final typeLabel = kAccountTypeLabels[accountType] ?? 'Account';
+    final initialBalance = double.parse(_balanceController.text.trim());
+
     setState(() => _isSubmitting = true);
 
-    final financeService = context.read<FinanceService>();
-    final balance = double.parse(_balanceController.text.trim());
-
     try {
-      await financeService.addWallet(
-        name: _nameController.text,
-        accountType: _selectedAccountType,
-        typeLabel: kAccountTypeLabels[_selectedAccountType] ?? 'Account',
-        initialBalance: balance,
+      await context.read<FinanceService>().addWallet(
+        name: walletName,
+        accountType: accountType,
+        typeLabel: typeLabel,
+        initialBalance: initialBalance,
       );
-      if (mounted) {
-        Navigator.of(context).pop();
+
+      if (!mounted) {
+        return;
       }
+
+      Navigator.of(context).pop();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
